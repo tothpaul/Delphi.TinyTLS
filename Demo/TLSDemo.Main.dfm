@@ -43,7 +43,7 @@ object Main: TMain
   object edURL: TComboBox
     Left = 0
     Top = 8
-    Width = 535
+    Width = 417
     Height = 23
     Anchors = [akLeft, akTop, akRight]
     ItemIndex = 0
@@ -56,5 +56,19 @@ object Main: TMain
       'https://www.embarcadero.com'
       'https://tls12.browserleaks.com/'
       'https://tls13.browserleaks.com/')
+  end
+  object cbEgine: TComboBox
+    Left = 423
+    Top = 8
+    Width = 112
+    Height = 23
+    Style = csDropDownList
+    ItemIndex = 0
+    TabOrder = 3
+    Text = 'Default'
+    Items.Strings = (
+      'Default'
+      'TinyTLS'
+      'SChannel')
   end
 end

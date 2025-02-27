@@ -112,7 +112,7 @@ type
   private
     FAlert: TAlert;
   public
-    constructor Create(const AAlert: TAlert; const Msg: string); overload;
+    constructor Create(AAlert: PAlert; const Msg: string = ''); overload;
     constructor Create(ALevel: TAlertLevel; ADescription: TAlertDescription; const Msg: string); overload;
     property Alert: TAlert read FAlert;
     property AlertLevel: TAlertLevel read FAlert.level;
@@ -452,6 +452,24 @@ type
     property Done: TEvent read FDone;
   end;
 
+  TTLSSocket = class(TSocket)
+  private
+    FExplicit: Boolean;
+  protected
+    FActive: Boolean;
+  // Reading
+    FData  : TTLSFragment;
+    FStart : Integer;
+    FCount : Integer;
+    FReader: TTLSReader;
+    procedure OnConnect; override;
+    procedure WaitForReader();
+  public
+    procedure StartTLS; virtual; abstract;
+    property Active: Boolean read FActive;
+    property Explicit: Boolean read FExplicit write FExplicit;
+  end;
+
 procedure RaiseHandShakeFailure(const Name: string);
 procedure CheckProtocol(const Protocol: TProtocolVersion; ExpectedVersion: Word);
 procedure RaiseOverflow(const Name: string);
@@ -503,7 +521,7 @@ end;
 function TTLSPlaintextHeader.IsCrypted: Boolean;
 begin
   case ContentType of
-    TContentType.ChangeCipherSpec : Result := Length <> 1;
+    //TContentType.ChangeCipherSpec : Result := Length <> 1;
     TContentType.Alert: Result := Length <> SizeOf(TAlert);
     TContentType.HandShake: Result := Length <> SizeOf(THandshakeHeader) + PHandShakeHeader(Fragment).Length;
   else
@@ -523,10 +541,50 @@ end;
 
 { ETLSAlert }
 
-constructor ETLSAlert.Create(const AAlert: TAlert; const Msg: string);
+constructor ETLSAlert.Create(AAlert: PAlert; const Msg: string = '');
 begin
-  FAlert := AAlert;
-  inherited Create(Msg);
+  FAlert := AAlert^;
+
+  var Str: string;
+  case FAlert.level of
+    warning: Str := 'warning';
+    fatal  : Str := 'fatal';
+  else
+    str := 'Unknown alert level';
+  end;
+
+  case FAlert.description of
+    close_notify: Str := Str + ' close_notify';
+    unexpected_message: Str := Str + ' unexpected_message';
+    bad_record_mac: Str := Str + ' bad_record_mac';
+    record_overflow: Str := Str + ' record_overflow';
+    decompression_failure: Str := Str + ' decompression_failure';
+    handshake_failure: Str := Str + ' handshake_failure';
+    bad_certificate: Str := Str + ' bad_certificate';
+    unsupported_certificate: Str := Str + ' unsupported_certificate';
+    certificate_revoked: Str := Str + ' certificate_revoked';
+    certificate_expired: Str := Str + ' certificate_expired';
+    certificate_unknown: Str := Str + ' certificate_unknown';
+    illegal_parameter: Str := Str + ' illegal_parameter';
+    unknown_ca: Str := Str + ' unknown_ca';
+    access_denied: Str := Str + ' access_denied';
+    decode_error: Str := Str + ' decode_error';
+    decrypt_error: Str := Str + ' decrypt_error';
+    export_restriction: Str := Str + ' export_restriction';
+    protocol_version: Str := Str + ' protocol_version';
+    insufficient_security: Str := Str + ' insufficient_security';
+    internal_error: Str := Str + ' internal_error';
+    user_canceled: Str := Str + ' user_canceled';
+    no_renegotiation: Str := Str + ' no_renegotiation';
+    unsupported_extension: Str := Str + ' unsupported_extension';
+  else
+    Str := Str + ' unknown alert';
+  end;
+
+  if Msg <> '' then
+    Str := Msg + ' (' + Str + ')';
+
+  inherited Create(Str);
 end;
 
 constructor ETLSAlert.Create(ALevel: TAlertLevel;
@@ -891,6 +949,24 @@ end;
 procedure TCipherList.SetCount(Value: Word);
 begin
   FSize := Swap(Value * SizeOf(Word));
+end;
+
+{ TTLSSocket }
+
+procedure TTLSSocket.OnConnect;
+begin
+  inherited;
+  if not FExplicit then
+    StartTLS;
+end;
+
+procedure TTLSSocket.WaitForReader;
+begin
+  if FReader.WaitFor(INFINITE) <> wrSignaled then
+  begin
+    FReader := nil;
+    raise Exception.Create('Read Error');
+  end;
 end;
 
 end.

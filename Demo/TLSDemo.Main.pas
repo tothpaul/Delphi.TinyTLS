@@ -11,6 +11,7 @@ type
     btGO: TButton;
     mmHtml: TMemo;
     edURL: TComboBox;
+    cbEgine: TComboBox;
     procedure btGOClick(Sender: TObject);
   private
     { Déclarations privées }
@@ -26,11 +27,21 @@ implementation
 {$R *.dfm}
 
 uses
-  Execute.HTTPClient;
+  Execute.HTTPClient,
+  System.DateUtils;
+
 
 procedure TMain.btGOClick(Sender: TObject);
 begin
-  mmHtml.Text := wget(edURL.Text);
+  mmHtml.Text := 'Loading...';
+  try
+    THTTPClient.DefaultTLSEngine := TTLSEngine(cbEgine.ItemIndex);
+    mmHtml.Lines.LineBreak := #10;
+    mmHtml.Lines.Text := wget(edURL.Text);
+  except
+    on e: Exception do
+      mmHtml.Text := e.ClassName + ':'  + e.Message;
+  end;
 end;
 
 end.

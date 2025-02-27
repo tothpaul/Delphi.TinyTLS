@@ -13,7 +13,9 @@ uses
   Execute.TLS.Debug in '..\lib\Execute.TLS.Debug.pas',
   Execute.TLS.Debug.Values in '..\lib\Execute.TLS.Debug.Values.pas',
   Execute.Crypto in '..\lib\Execute.Crypto.pas',
-  Execute.TinyTLS.Types in '..\lib\Execute.TinyTLS.Types.pas';
+  Execute.TinyTLS.Types in '..\lib\Execute.TinyTLS.Types.pas',
+  Execute.SChannel in '..\lib\Execute.SChannel.pas',
+  Execute.WinSSPI in '..\lib\Execute.WinSSPI.pas';
 
 {$R *.res}
 

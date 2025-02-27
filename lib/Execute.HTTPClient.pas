@@ -18,7 +18,8 @@ uses
   System.Classes,
   System.ZLib,
   Execute.Sockets,
-  Execute.TinyTLS;
+  Execute.TinyTLS,
+  Execute.SChannel;
 
 type
   TURL = record
@@ -55,6 +56,12 @@ type
     function HasHeader(const Name, Value: string): Boolean;
   end;
 
+  TTLSEngine = (
+    tlsDefault,
+    tlsTinyTLS,
+    tlsSChannel
+  );
+
   THTTPClient = class
   private
     FHost: UTF8String;
@@ -75,6 +82,7 @@ type
     FLastTick: Cardinal;
     FResponse: UTF8String;
     FResponseCode: Integer;
+    FTLSEngine: TTLSEngine;
     function AcceptEncoding: UTF8String;
     function GetCustomHeaders: UTF8String;
     procedure SetCookies(Lst: TStrings);
@@ -91,6 +99,7 @@ type
     procedure ReadChunks(Stream: TStream);
     procedure GetTimeout;
   public
+    class var DefaultTLSEngine: TTLSEngine;
     constructor Create;
     destructor Destroy; override;
     procedure Close;
@@ -107,6 +116,7 @@ type
     property CustomHeaders: TStringList read FCustomHeaders;
     property Response: UTF8String read FResponse;
     property ResponseCode: Integer read FResponseCode;
+    property TLSEngine: TTLSEngine read FTLSEngine write FTLSEngine;
   end;
 
 function wget(const URL: string): string;
@@ -471,6 +481,7 @@ begin
   FCustomHeaders := TStringList.Create;
   FCustomHeaders.NameValueSeparator := ':';
   FHeader := TStringStream.Create;
+  FTLSEngine := DefaultTLSEngine;
 end;
 
 destructor THTTPClient.Destroy;
@@ -591,7 +602,19 @@ begin
   begin
     if FTLS then
     begin
-      FSocket := TTinyTLS.Create();
+      var E := FTLSEngine;
+      if E = tlsDefault then
+      begin
+        if TOSVersion.Major < 10 then
+          E := tlsSChannel
+        else
+          E := tlsTinyTLS;
+      end;
+      case E of
+        tlsTinyTLS:  FSocket := TTinyTLS.Create;
+        tlsSChannel: FSocket := TSChannel.Create;
+      end;
+
     end else begin
       FSocket := TSocket.Create;
     end;

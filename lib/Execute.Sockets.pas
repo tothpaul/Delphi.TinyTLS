@@ -45,9 +45,11 @@ type
     class constructor Create;
     function ReadMore: Integer;
     procedure ReadMemoryStream(Stream: TMemoryStream; Size: Integer);
+  protected
+    procedure OnConnect; virtual;
   public
     constructor Create;
-    function Connect(const Host: UTF8String; Port: Integer; Timeout: Integer = 0): Integer; virtual;
+    function Connect(const Host: UTF8String; Port: Integer; Timeout: Integer = 0): Integer;
     function Closed: Boolean; virtual;
     function Read(var Data; Size: Integer; Raw: Boolean = False): Integer; virtual;
     function Write(const Data; Size: Integer; Raw: Boolean = False): Integer; virtual;
@@ -205,6 +207,11 @@ end;
 constructor TSocket.Create;
 begin
   FHandle := INVALID_SOCKET_HANDLE
+end;
+
+procedure TSocket.OnConnect;
+begin
+
 end;
 
 procedure TSocket.SendStream(Stream: TStream);
@@ -432,7 +439,7 @@ begin
 
     if Result = 0 then
     begin
-//      OnConnect;
+      OnConnect;
       Exit;
     end;
   end;

@@ -138,6 +138,7 @@ type
     procedure Dump(Data: Pointer; Size: Integer);
     procedure DumpVar(const Title: string; Data: Pointer; Size: Integer);
     property LogProc: TLogProc read FLogProc write FLogProc;
+    property CipherChanged: Boolean read FChangeCipherSpec;
   end;
 
   TDebugTLSSession = class(TDebugTLS)
@@ -1244,7 +1245,7 @@ begin
     Exit;
   if FPublicKey.modulus = nil then
   begin
-    FPublicKey.LoadKey(Context.pCertInfo.SubjectPublicKeyInfo.PublicKey.pbData, Context.pCertInfo.SubjectPublicKeyInfo.PublicKey.cbData);
+//    FPublicKey.LoadKey(Context.pCertInfo.SubjectPublicKeyInfo.PublicKey.pbData, Context.pCertInfo.SubjectPublicKeyInfo.PublicKey.cbData);
   end;
   var Save := BeginIter('Certificate', Context.cbCertEncoded);
   var Name := CertName(Context, Context.pCertInfo.Subject);
@@ -1612,7 +1613,8 @@ begin
   Log('ContentType: ' + GetContentType(TLSRecord.Header.ContentType));
   Log('ProtocolVersion: ' + GetProtocolVersion(TLSRecord.Header.ProtocolVersion));
   Log('Length: ' + IntToStr(TLSRecord.Size));
-  if FChangeCipherSpec and (Uncrypted = False) and TLSRecord.Header.IsCrypted then
+  if (FChangeCipherSpec)// and TLSRecord.Header.IsCrypted)
+  or (TLSRecord.Header.ContentType = ApplicationData) then
   begin
     Log('//Crypted ' + TLSRecord.Size.ToString);
     Dump(TLSRecord.Data, TLSRecord.Size);

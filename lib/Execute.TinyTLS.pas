@@ -30,10 +30,8 @@ type
   TCertificateRequestEvent = procedure(Sender: TObject; var Certificates: TArray<TBytes>) of object;
   TCertificateVerifyEvent = procedure(Sender: TObject; const Hash: TBytes; var Signature: TBytes) of object;
 
-  TTinyTLS = class(TSocket)
+  TTinyTLS = class(TTLSSocket)
   private
-    FExplicit: Boolean;
-    FActive: Boolean;
   // Supported Cipher Suites
     FCipherSuites: TArray<TCipherSuiteTag>;
   // Supported Compressions
@@ -42,11 +40,6 @@ type
     FSupportedGroups: TArray<TSupportedGroup>;
   // Supported Signatures
     FSignatures: TArray<TSignatureScheme>;
-  // Reading
-    FData  : TTLSFragment;
-    FStart : Integer;
-    FCount : Integer;
-    FReader: TTLSReader;
   // Send Plaintext
     FPlaintext: TTLSPlaintext;
     FHandShake: PHandShakeHeader;
@@ -89,7 +82,6 @@ type
     procedure ClientHello;
     procedure ClientKeyExchange;
     procedure NegociateTLS();
-    procedure WaitForReader();
     procedure UpdateDigest(HandShake: PHandShakeHeader);
     procedure ProcessHelloRequest(Payload: PByte; Size: Cardinal);
     procedure ProcessServerHello(Payload: PByte; Size: Cardinal);
@@ -109,14 +101,12 @@ type
   public
     constructor Create;
     destructor Destroy; override;
-    procedure StartTLS;
   // TSocket
-    function Connect(const Host: UTF8String; Port: Integer; Timeout: Integer = 0): Integer; override;
     function Read(var Data; Size: Integer; Raw: Boolean = False): Integer; override;
     function Write(const Data; Size: Integer; Raw: Boolean = False): Integer; override;
+  // TTLSSocket
+    procedure StartTLS; override;
   public
-    property Explicit: Boolean read FExplicit write FExplicit;
-    property Active: Boolean read FActive;
     property OnCertificateRequest: TCertificateRequestEvent read FOnCertificateRequest write FOnCertificateRequest;
     property OnCertificateVerify: TCertificateVerifyEvent read FOnCertificateVerify write FOnCertificateVerify;
   end;
@@ -172,14 +162,6 @@ destructor TTinyTLS.Destroy;
 begin
   FHandShakeData.Free;
   inherited;
-end;
-
-function TTinyTLS.Connect(const Host: UTF8String; Port,
-  Timeout: Integer): Integer;
-begin
-  Result := inherited;
-  if (Result = 0) and (not FExplicit) then
-    StartTLS;
 end;
 
 procedure TTinyTLS.StartTLS;
@@ -398,48 +380,10 @@ begin
 
   var Alert: PAlert := PAlert(Payload);
   var Str: string;
-  case Alert.level of
-    warning: Str := 'warning';
-    fatal  : Str := 'fatal';
-  else
-    raise Exception.Create('Unknown alert level');
-  end;
+  if (Alert.description = handshake_failure) and (FState = [psClientHello]) then
+      Str := 'CiperSuites or SignatureAlgorithms refused by server';
 
-  case Alert.description of
-    close_notify: Str := Str + ' close_notify';
-    unexpected_message: Str := Str + ' unexpected_message';
-    bad_record_mac: Str := Str + ' bad_record_mac';
-    record_overflow: Str := Str + ' record_overflow';
-    decompression_failure: Str := Str + ' decompression_failure';
-    handshake_failure: Str := Str + ' handshake_failure';
-    bad_certificate: Str := Str + ' bad_certificate';
-    unsupported_certificate: Str := Str + ' unsupported_certificate';
-    certificate_revoked: Str := Str + ' certificate_revoked';
-    certificate_expired: Str := Str + ' certificate_expired';
-    certificate_unknown: Str := Str + ' certificate_unknown';
-    illegal_parameter: Str := Str + ' illegal_parameter';
-    unknown_ca: Str := Str + ' unknown_ca';
-    access_denied: Str := Str + ' access_denied';
-    decode_error: Str := Str + ' decode_error';
-    decrypt_error: Str := Str + ' decrypt_error';
-    export_restriction: Str := Str + ' export_restriction';
-    protocol_version: Str := Str + ' protocol_version';
-    insufficient_security: Str := Str + ' insufficient_security';
-    internal_error: Str := Str + ' internal_error';
-    user_canceled: Str := Str + ' user_canceled';
-    no_renegotiation: Str := Str + ' no_renegotiation';
-    unsupported_extension: Str := Str + ' unsupported_extension';
-  else
-    Str := Str + ' unknown alert';
-  end;
-
-  if Alert.description = handshake_failure then
-  begin
-    if FState = [psClientHello] then
-      Str := 'CiperSuites or SignatureAlgorithms refused by server (' + Str + ')';
-  end;
-
-  raise ETLSAlert.Create(Alert^, Str);
+  raise ETLSAlert.Create(Alert, Str);
 end;
 
 procedure TTinyTLS.ProcessPlaintext(Plaintext: PTLSPlaintextHeader);
@@ -783,15 +727,6 @@ begin
   repeat
     ProcessNegociation
   until Active;
-end;
-
-procedure TTinyTLS.WaitForReader;
-begin
-  if FReader.WaitFor(INFINITE) <> wrSignaled then
-  begin
-    FReader := nil;
-    raise Exception.Create('Read Error');
-  end;
 end;
 
 procedure TTinyTLS.Reset;

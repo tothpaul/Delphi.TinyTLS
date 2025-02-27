@@ -140,6 +140,8 @@
         <DCCReference Include="..\lib\Execute.TLS.Debug.Values.pas"/>
         <DCCReference Include="..\lib\Execute.Crypto.pas"/>
         <DCCReference Include="..\lib\Execute.TinyTLS.Types.pas"/>
+        <DCCReference Include="..\lib\Execute.SChannel.pas"/>
+        <DCCReference Include="..\lib\Execute.WinSSPI.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
