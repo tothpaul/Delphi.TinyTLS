@@ -10,3 +10,4 @@ use it at your own risk ;)
 you can use the either TinyTLS or SChannel engine, the TLS Fragments are readed by FTLSReader in both cases and the Debug unit can displays the protocol details (see $DEFINE TLS_DEBUG)
 
 - 02/27/2025: added SChannel Engine, note that TinyTLS uses BCrypt.dll available only since Windows 10
+- 03/06/2025: TLS 1.3 with SChannel under Windows 11
