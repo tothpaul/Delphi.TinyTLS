@@ -705,7 +705,8 @@ begin
       FCipherAlgorithm := TAESCipherGCM.Create(128);
     end;
     TLS_AES_256_GCM_SHA384,
-    TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
+    TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+    TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
     begin
       FHashAlgorithm := TSHA2Hash.Create(384);
       FCipherAlgorithm := TAESCipherGCM.Create(256);
@@ -807,7 +808,8 @@ begin
     TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
     TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
     TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
-    TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384:
+    TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384,
+    TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
     begin
       FKeyExchangeAlgorithm := TECDHE_RSAKeyExchange.Create(NamedCurve, PublicKey);
     end;
@@ -817,6 +819,7 @@ begin
 
   var PaddingInfo: BCRYPT_PKCS1_PADDING_INFO;
   case SignatureScheme of
+    ecdsa_sha1,
     rsa_pkcs1_sha1   : PaddingInfo.psaAligId := 'SHA1';
     rsa_pkcs1_sha256 : PaddingInfo.psaAligId := 'SHA256';
     rsa_pkcs1_sha384 : PaddingInfo.psaAligId := 'SHA384';

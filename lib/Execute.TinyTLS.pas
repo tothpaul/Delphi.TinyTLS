@@ -137,6 +137,7 @@ begin
   FCipherSuites := [
 //    TLS_RSA_WITH_AES_128_GCM_SHA256,
 //    TLS_RSA_WITH_AES_256_GCM_SHA384
+    TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
     TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
     TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
     TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384,
@@ -152,6 +153,7 @@ begin
   ];
 
   FSignatures := [
+    TSignatureScheme.ecdsa_sha1,
     TSignatureScheme.rsa_pkcs1_sha1,
     TSignatureScheme.rsa_pkcs1_sha256,
     TSignatureScheme.rsa_pkcs1_sha384
@@ -289,6 +291,7 @@ begin
 
   var Hash: IHashAlgorithm;
   case ServerKeyExchange.SignatureScheme of
+    ecdsa_sha1,
     rsa_pkcs1_sha1   : Hash := TSHA1Hash.Create;
     rsa_pkcs1_sha256 : Hash := TSHA2Hash.Create(256);
     rsa_pkcs1_sha384 : Hash := TSHA2Hash.Create(384);

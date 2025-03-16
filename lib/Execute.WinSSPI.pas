@@ -107,7 +107,7 @@ type
     cMappers: DWORD;
     aphMappers: Pointer;
     cSupportedAlgs: DWORD;
-    palgSupportedAlgs: TArray<ALG_ID>;//^ALG_ID;
+    palgSupportedAlgs: ^ALG_ID;
     grbitEnabledProtocols: DWORD;
     dwMinimumCipherStrength: DWORD;
     dwMaximumCipherStrength: DWORD;

@@ -18,6 +18,7 @@ uses
   System.Classes,
   System.ZLib,
   Execute.Sockets,
+  Execute.TinyTLS.Types,
   Execute.TinyTLS,
   Execute.SChannel;
 
@@ -618,7 +619,23 @@ begin
     end else begin
       FSocket := TSocket.Create;
     end;
+
+    try
     FSocket.Connect(FHost, FPort);
+    except
+      on e: ETLSAlert do
+      begin
+        if (FTLSEngine = tlsDefault) and (FSocket is TTinyTLS) then // fallback on SChannel (probably for TLS 1.3)
+        begin
+          FSocket.Free;
+          FSocket := TSChannel.Create;
+          FSocket.Connect(FHost, FPort);
+        end else begin
+          raise;
+        end;
+      end;
+
+    end;
   end;
 
   FSocket.SendStream(Req);

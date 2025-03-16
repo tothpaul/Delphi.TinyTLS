@@ -28,6 +28,12 @@ type
 
   TSSLInit = set of (iCredentials, iContext);
 
+  TAuthData = record
+  case Boolean of
+    False: (OLD: SCHANNEL_CRED);
+    True : (NEW: SCH_CREDENTIALS);
+  end;
+
   TSChannel = class(TTLSSocket)
   private
     class var Secur32: THandle;
@@ -105,11 +111,21 @@ begin
   if SSPI = nil then
     raise ESChannel.Create('SChannel is not available');
 
-  var CRED: SCHANNEL_CRED;
-  FillChar(CRED, SizeOf(CRED), 0);
-  CRED.dwVersion := SCHANNEL_CRED_VERSION;
-  CRED.grbitEnabledProtocols := SP_PROT_TLS1_2;
-  CRED.dwFlags := SCH_CRED_NO_DEFAULT_CREDS or SCH_CRED_MANUAL_CRED_VALIDATION;
+  var Auth: TAuthData;
+  FillChar(Auth, SizeOf(Auth), 0);
+
+  if TOSVersion.Build < 17763 then  // Windows 10 - 1809
+  begin
+  // fail with error SEC_E_ALGORITHM_MISMATCH if you specify TLS 1.3
+  // https://learn.microsoft.com/en-us/answers/questions/708734/tls-1-3-doesnt-work-on-windows-11-through-schannel
+    Auth.OLD.dwVersion := SCHANNEL_CRED_VERSION;
+    Auth.OLD.grbitEnabledProtocols := SP_PROT_TLS1_2 or SP_PROT_TLS1_3;
+    Auth.OLD.dwFlags := SCH_CRED_NO_DEFAULT_CREDS or SCH_CRED_MANUAL_CRED_VALIDATION or SCH_USE_STRONG_CRYPTO;
+  end else begin
+  // should work for TLS 1.3 under Windows 11
+    Auth.NEW.dwVersion := SCH_CREDENTIALS_VERSION;
+    Auth.NEW.dwFlags := SCH_CRED_NO_DEFAULT_CREDS or SCH_CRED_MANUAL_CRED_VALIDATION or SCH_USE_STRONG_CRYPTO;
+  end;
 
   FillChar(FCredentials, SizeOf(FCredentials), 0);
   FillChar(FContext, SizeOf(FContext), 0);
@@ -119,7 +135,7 @@ begin
     UNISP_NAME,
     SECPKG_CRED_OUTBOUND,
     nil,
-   @CRED,
+   @Auth,
     nil,
     nil,
    @FCredentials,
@@ -257,6 +273,9 @@ begin
     nil
   );
 
+  if FErrNo = SEC_E_OK then
+    Exit;   // when SEC_I_RENEGOTIATE succeed directly
+
   if (FErrNo <> SEC_I_CONTINUE_NEEDED) then
     raise ESChannelError.Create(FErrNo, 'InitializeSecurityContext');
 
@@ -359,6 +378,12 @@ begin
   Buffer.pBuffers := Addr(Buffers[0]);
 
   FErrNo := SSPI.DecryptMessage(@FContext, @Buffer, 0, nil);
+
+  if FErrNo = SEC_I_RENEGOTIATE then  // occurs with TLS 1.3 for instance
+  begin
+    NegociateTLS();
+    Exit(0);
+  end;
 
   if FErrNo <> SEC_E_OK then
     raise ESChannelError.Create(FErrno, 'DecryptMessage');

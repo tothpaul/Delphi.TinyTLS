@@ -1506,30 +1506,29 @@ end;
 
 procedure TDebugTLS.DebugKeyShare(Extension: PExtensionHeader; Client: Boolean);
 begin
-  Log('KeyShare {');
-  Inc(FIter);
+  var Size := Integer(Extension.Length);
   var KeyShare: PKeyShareExtension;
   if Client then
   begin
-    KeyShare := @PClientKeyShareExtension(Extension.Payload).KeyShare
+    KeyShare := @PClientKeyShareExtension(Extension.Payload).KeyShare;
+    Dec(Size, 2);
   end else begin
     KeyShare := PKeyShareExtension(Extension.Payload);
   end;
+  repeat
+    Log('KeyShare {');
+    Inc(FIter);
   var Key := KeyShare.GetKey;
   Log('CurveName: ' + GetSupportedGroup(KeyShare.Curve));
   DumpVar('PublicKey', Key, Length(Key));
   Dec(FIter);
   Log('}');
-  if Client then
-  begin
-    if Extension.Length <> 2 + 2 + 2 + Length(Key) then
+    var L := 2 + 2 + Length(Key);
+    Inc(PByte(KeyShare), L);
+    Dec(Size, L);
+  until Size <= 0;
+  if Size < 0 then
       raise Exception.Create('KeyShareExtension Size error');
-    if Extension.Length <> PClientKeyShareExtension(Extension.Payload).Size + 2 then
-      raise Exception.Create('KeyShareExtension Size error');
-  end else begin
-    if Extension.Length <> 2 + 2 + Length(Key) then
-      raise Exception.Create('KeyShareExtension Size error');
-  end;
 end;
 
 procedure TDebugTLS.DebugNewSessionTicket(HandShake: PHandShakeHeader);
