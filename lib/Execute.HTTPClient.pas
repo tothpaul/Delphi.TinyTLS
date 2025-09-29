@@ -9,11 +9,15 @@ interface
 {.$DEFINE LOG_HTTP}
 {.$DEFINE KEEP_HTTP}
 {.$DEFINE DEBUG_COOKIE}
+{.$DEFINE DISABLE_FALLBACK}
 {.$DEFINE TRACE_WS}
 {$ENDIF}
 
 uses
-{$IFDEF DEBUG}Winapi.Windows,{$ENDIF}
+{$IFDEF MSWINDOWS}
+  Winapi.Windows,
+  System.Win.Registry,
+{$ENDIF}
   System.SysUtils,
   System.Classes,
   System.ZLib,
@@ -23,10 +27,12 @@ uses
   Execute.SChannel;
 
 type
+  EProxyError = class(Exception);
+
   TURL = record
     Protocol: UTF8String;
     HostName: UTF8String;
-    Port    : UTF8String;
+    Port    : Integer;
     URI     : UTF8String;
     Target  : UTF8String;
     procedure Decode(const URL: UTF8String);
@@ -65,10 +71,16 @@ type
 
   THTTPClient = class
   private
+    FProxyServer: string;
+    FProxyPort: Integer;
+  {$IFDEF MSWINDOWS}
+    FProxyOverride: TArray<string>;
+  {$ENDIF}
+    FProxy: Boolean;
     FHost: UTF8String;
     FPort: Integer;
     FTLS : Boolean;
-    FSocket: TSocket;
+    FSocket: TTLSSocket;
     FKeepAlive: Boolean;
     FContentType: UTF8String;
     FAccept: UTF8String;
@@ -88,6 +100,7 @@ type
     function GetCustomHeaders: UTF8String;
     procedure SetCookies(Lst: TStrings);
     function TimedOut: Boolean;
+    function Connect(const Server: UTF8String; Port: Integer; TLS: Boolean): Boolean;
     procedure SendRequest(Req: TStream);
     procedure DoRequest(Req, Rsp: TStream; Body: TStream = nil);
     procedure Request(const Method, URL: UTF8String; Rsp: TStream; Body: TStream = nil);
@@ -99,6 +112,10 @@ type
     procedure ParseHeader;
     procedure ReadChunks(Stream: TStream);
     procedure GetTimeout;
+  {$IFDEF MSWINDOWS}
+    function DetectProxy(): Boolean;
+    function UseProxy(const URL: string): Boolean;
+  {$ENDIF}
   public
     class var DefaultTLSEngine: TTLSEngine;
     constructor Create;
@@ -108,6 +125,8 @@ type
     function Post(const URL, Content: UTF8String): UTF8String;
     function Put(const URL, Content: UTF8String): UTF8String;
     procedure Delete(const URL: UTF8String);
+    property ProxyServer: string read FProxyServer write FProxyServer;
+    property ProxyPort: Integer read FProxyPort write FProxyPort;
     property KeepAlive: Boolean read FKeepAlive write FKeepAlive;
     property ContentType: UTF8String read FContentType write FContentType;
     property Accept: UTF8String read FAccept write FAccept;
@@ -125,7 +144,7 @@ function wget(const URL: string): string;
 implementation
 
 const
-  CONNECTION: array[False..True] of AnsiString = ('close', 'keep-alive');
+  CONNECTION: array[False..True] of UTF8String = ('close', 'keep-alive');
 
 function wget(const URL: string): string;
 begin
@@ -297,11 +316,11 @@ begin
   Result := Value <> '';
 end;
 
-function GetPair(const Source: string; var Name, Value: string): Boolean;
+function GetPair(const Source: string; var Name, Value: string; Sep: Char = '='): Boolean;
 var
   I: Integer;
 begin
-  I := System.Pos('=', Source);
+  I := System.Pos(Sep, Source);
   if I = 0 then
     Exit(False);
   Name := Trim(Copy(Source, 1, I - 1));
@@ -343,15 +362,14 @@ begin
       Target := Copy(URL, I1);
     end;
   end;
+  if Protocol = 'https' then
+    Port := 443
+  else
+    Port := 80;
   I1 := UTF8Pos(':', HostName);
-  if I1 = 0 then
+  if I1 > 0 then
   begin
-    if Protocol = 'https' then
-      Port := '443'
-    else
-      Port := '80';
-  end else begin
-    Port := Copy(HostName, I1 + 1);
+    Port := StrToIntDef(string(Copy(HostName, I1 + 1)), Port);
     SetLength(HostName, I1 - 1);
   end;
 end;
@@ -478,10 +496,13 @@ begin
   FContentType := 'text/html; charset=UTF-8';
   FAccept := '*/*';
   FAcceptGZIP := True;
-  FUserAgent := 'Mozilla/5.0 (' + TOSVersion.Name + ') Execute.HTTPClient/1.0';
+  FUserAgent := 'Mozilla/5.0 (' + UTF8String(TOSVersion.Name) + ') Execute.HTTPClient/1.0';
   FCustomHeaders := TStringList.Create;
   FCustomHeaders.NameValueSeparator := ':';
   FHeader := TStringStream.Create;
+{$IFDEF MSWINDOWS}
+  DetectProxy();
+{$ENDIF}
   FTLSEngine := DefaultTLSEngine;
 end;
 
@@ -492,6 +513,48 @@ begin
   FCustomHeaders.Free;
   inherited;
 end;
+
+{$IFDEF MSWINDOWS}
+function THTTPClient.DetectProxy(): Boolean;
+begin
+  Result := False;
+  var Reg := TRegistry.Create;
+  try
+    Reg.RootKey := HKEY_CURRENT_USER;
+    if Reg.OpenKeyReadOnly('\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings') then
+    begin
+      if Reg.ReadInteger('ProxyEnable') = 1 then
+      begin
+        var LProxyServer := Reg.ReadString('ProxyServer'); // host:port
+        if LProxyServer = '' then
+          Exit;
+        var Host, Port: string;
+        GetPair(LProxyServer, Host, Port, ':');
+        if not TryStrToInt(Port, FProxyPort) then
+          Exit;
+        FProxyServer := Host;
+        FProxyOverride := Reg.ReadString('ProxyOverride').Split([';']);
+        Result := True;
+      end;
+    end;
+  finally
+    Reg.Free;
+  end;
+end;
+
+function THTTPClient.UseProxy(const URL: string): Boolean;
+begin
+  Result := False;
+  if FProxyServer = '' then
+    Exit;
+  for var i := 0 to High(FProxyOverride) do
+  begin
+    if URL.StartsWith(FProxyOverride[i], True) then
+      Exit;
+  end;
+  Result := True;
+end;
+{$ENDIF}
 
 function THTTPClient.AcceptEncoding: UTF8String;
 begin
@@ -511,7 +574,7 @@ begin
     Lst.Assign(FCustomHeaders);
     SetCookies(Lst);
     if FAuthorization <> '' then
-      Lst.Add('Authorization: ' + FAuthorization);
+      Lst.Add('Authorization: ' + string(FAuthorization));
     Str := Trim(Lst.Text);
   finally
     Lst.Free;
@@ -587,11 +650,9 @@ begin
   Result := (Ticks  - FLastTick) div 1000 >= FTimeout;
 end;
 
-procedure THTTPClient.SendRequest(Req: TStream);
+function THTTPClient.Connect(const Server: UTF8String; Port: Integer; TLS: Boolean): Boolean;
 begin
-  FHeader.Clear;
-  FHeaders.Fields := nil;
-//  FCookies := nil;
+  Result := False;
 
   if Assigned(FSocket) and (TimedOut or FSocket.Closed) then
   begin
@@ -601,42 +662,51 @@ begin
 
   if FSocket = nil then
   begin
-    if FTLS then
+    var E := FTLSEngine;
+    if E = tlsDefault then
     begin
-      var E := FTLSEngine;
-      if E = tlsDefault then
-      begin
-        if TOSVersion.Major < 10 then
-          E := tlsSChannel
-        else
-          E := tlsTinyTLS;
-      end;
-      case E of
-        tlsTinyTLS:  FSocket := TTinyTLS.Create;
-        tlsSChannel: FSocket := TSChannel.Create;
-      end;
-
-    end else begin
-      FSocket := TSocket.Create;
+      if TOSVersion.Major < 10 then
+        E := tlsSChannel
+      else
+        E := tlsTinyTLS;
     end;
+    case E of
+      tlsTinyTLS : FSocket := TTinyTLS.Create;
+      tlsSChannel: FSocket := TSChannel.Create;
+    end;
+    FSocket.Explicit := not TLS; // http vs https
 
+  {$IFNDEF DISABLE_FALLBACK}
     try
-    FSocket.Connect(FHost, FPort);
+  {$ENDIF}
+      FLastTick := GetTickCount;
+      FTimeout := 5;
+      FSocket.Connect(Server, Port);
+  {$IFNDEF DISABLE_FALLBACK}
     except
       on e: ETLSAlert do
       begin
-        if (FTLSEngine = tlsDefault) and (FSocket is TTinyTLS) then // fallback on SChannel (probably for TLS 1.3)
+        if FSocket is TTinyTLS then // fallback on SChannel (probably for TLS 1.3)
         begin
           FSocket.Free;
           FSocket := TSChannel.Create;
-          FSocket.Connect(FHost, FPort);
+          FSocket.Connect(Server, Port);
         end else begin
           raise;
         end;
       end;
-
     end;
+  {$ENDIF}
   end;
+end;
+
+procedure THTTPClient.SendRequest(Req: TStream);
+begin
+  FHeader.Clear;
+  FHeaders.Fields := nil;
+
+  if not FProxy then
+    Connect(FHost, FPort, FTLS);
 
   FSocket.SendStream(Req);
 end;
@@ -698,20 +768,53 @@ procedure THTTPClient.Request(const Method, URL: UTF8String;
   Rsp: TStream; Body: TStream = nil);
 var
   lURL: TURL;
+  sURL: UTF8String;
   lReq: UTF8String;
   sReq: TMemoryStream;
 begin
+  FProxy := {$IFDEF MSWINDOWS}UseProxy(string(URL)){$ELSE}(FProxyServer <> '') and (FProxyPort > 0){$ENDIF};
+
   lURL.Decode(URL);
+
+  if (FHost <> lURL.HostName) or (FPort <> lURL.Port) then
+    Close;
+
   FHost := lURL.HostName;
-  FPort := StrToInt(lURL.Port);
+  FPort := lURL.Port;
   SetTLS(lURL.Protocol = 'https');
+
+  sURL := lURL.URI;
+
+  if FProxy then
+  begin
+    Connect(UTF8String(FProxyServer), FProxyPort, False);
+    if FTLS then
+    begin
+      lReq := FHost + ':' + UTF8String(IntToStr(FPort));
+      lReq := 'CONNECT ' + lReq + ' HTTP/1.1'#13#10
+            + 'Connection: ' + CONNECTION[FKeepAlive] + #13#10
+            + 'Host: ' + lReq + #13#10
+            + 'User-Agent: '+ UserAgent + #13#10
+            + #13#10;
+      FSocket.WriteAll(lReq[1], Length(lReq), True);
+      FSocket.ReadUntilSequence(FHeader, #13#10#13#10);
+      ParseHeader;
+      // HTTP/1.1 200 Connection Established
+      // HTTP/1.1 500 Unable to connect
+      if FResponseCode <> 200 then
+        raise EProxyError.Create(string(FResponse));
+      FSocket.StartTLS;
+    end else begin
+      sURL := URL;
+    end;
+  end;
 
   if Body = nil then
     lReq := ''
   else
-    lReq := 'Content-Length: ' + AnsiString(IntToStr(Body.Size)) + #13#10;
+    lReq := 'Content-Length: ' + UTF8String(IntToStr(Body.Size)) + #13#10;
 
-  lReq := Method + ' ' + lURL.URI + ' HTTP/1.1'#13#10
+  lReq := Method + ' ' + sURL + ' HTTP/1.1'#13#10
         + 'Connection: ' + CONNECTION[FKeepAlive] + #13#10
         + 'Host: ' + FHost + #13#10
         + 'Content-Type: ' + ContentType + #13#10
@@ -721,8 +824,7 @@ begin
         + 'User-Agent: '+ UserAgent + #13#10
         + GetCustomHeaders
         + #13#10;
-//  if lReq[Length(LReq) - 2] <> #10 then
-//    lReq := lReq + #13#10;
+
 {$IFDEF LOG_HTTP}
   AllocConsole;
   WriteLn('[HEADER]');
@@ -792,7 +894,7 @@ begin
     Exit;
   if not GetPair(Val, Name, Val) then
     Exit;
-  Index := CookieIndex(Name, FHost);
+  Index := CookieIndex(Name, string(FHost));
   FCookies[Index].Value := UTF8String(Val);
   FCookies[Index].Path  := '';
   FCookies[Index].Domain:= '';
@@ -871,6 +973,7 @@ begin
     Inc(I);
   end;
 
+  N := I;
   while I < FHeader.Size do
   begin
     if P[I] = #10 then
@@ -884,8 +987,16 @@ begin
     Inc(I);
   end;
 
-  I := System.Pos(' ', FResponse);
-  Val(Copy(FResponse, I + 1), FResponseCode, N);
+  I := UTF8Pos(' ', FResponse) + 1;
+  FResponseCode := 0;
+  while I <= Length(FResponse) do
+  begin
+    N := Ord(FResponse[I]) - Ord('0');
+    if (N < 0) or (N > 9) then
+      Break;
+    FResponseCode := 10 * FResponseCode + N;
+    Inc(I);
+  end;
 end;
 
 function THTTPClient.Post(const URL, Content: UTF8String): UTF8String;
@@ -969,7 +1080,7 @@ var
 begin
   sRsp := TBytesStream.Create;
   try
-    Request(Method, string(URL), sRsp, Body);
+    Request(Method, URL, sRsp, Body);
     Enc := nil;
     Head := TEncoding.GetBufferEncoding(sRsp.Bytes, Enc, TEncoding.UTF8);
     if Enc = TEncoding.UTF8 then

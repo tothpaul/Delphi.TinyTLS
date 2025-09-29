@@ -235,10 +235,33 @@ begin
   Result := Swap(PWord(@PByte(@PublicKeySize)[1 + PublicKeySize + SizeOf(TSignatureAndHashAlgorithm)])^);
 end;
 
+procedure GetInteger32(var DER: PByte; Target: Pointer);
+begin
+  if (DER[0] <> $02) or (DER[1] < 32) then
+    RaiseHandShakeFailure('ecdsa_sha1 key size');
+  Move(DER[2 + DER[1] - 32], Target^, 32);
+  Inc(DER, 2 + DER[1]);
+end;
+
 function TServerKeyExchange.GetSignature: TBytes;
 begin
-  SetLength(Result, SignatureSize);
-  Move(PByte(@PublicKeySize)[1 + PublicKeySize + SizeOf(TSignatureAndHashAlgorithm) + SizeOf(Word)], Result[0], Length(Result));
+  var Signature := PByte(@PublicKeySize);
+  Inc(Signature, 1 + PublicKeySize + SizeOf(TSignatureAndHashAlgorithm) + SizeOf(Word));
+  var Size := SignatureSize;
+
+  if SignatureScheme = ecdsa_sha1 then
+  begin
+    var DER := Signature;
+    if (DER[0] <> $30) or (DER[1] + 2 <> Size) then
+      RaiseHandShakeFailure('ecdsa_sha1 DER size');
+    Inc(DER, 2);
+    SetLength(Result, 64);
+    GetInteger32(DER, @Result[ 0]);
+    GetInteger32(DER, @Result[32]);
+  end else begin
+    SetLength(Result, Size);
+    Move(Signature^, Result[0], Size);
+  end;
 end;
 
 procedure TServerKeyExchange.SetSignature(const Value: TBytes);

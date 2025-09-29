@@ -174,7 +174,7 @@ type
     Data : array[0..27] of Byte;
   end;
 
-  TFinished = array[0..11] of Byte;
+  TFinished = packed array[0..11] of Byte;
   PFinished = ^TFinished;
 
   TFinishedCache = packed record
@@ -455,6 +455,7 @@ type
   TTLSSocket = class(TSocket)
   private
     FExplicit: Boolean;
+    FTimeout: Cardinal;
   protected
     FActive: Boolean;
   // Reading
@@ -465,9 +466,11 @@ type
     procedure OnConnect; override;
     procedure WaitForReader();
   public
+    constructor Create;
     procedure StartTLS; virtual; abstract;
     property Active: Boolean read FActive;
     property Explicit: Boolean read FExplicit write FExplicit;
+    property Timeout: Cardinal read FTimeout write FTimeout;
   end;
 
 procedure RaiseHandShakeFailure(const Name: string);
@@ -859,7 +862,11 @@ end;
 
 function TTLSReader.FillBuffer: Integer;
 begin
-  Result := FSocket.Read(FBuffer[FTail], Length(FBuffer) - FTail, True);
+  try
+    Result := FSocket.Read(FBuffer[FTail], Length(FBuffer) - FTail, True);
+  except
+    Exit(0);
+  end;
   if Result > 0 then
   begin
     Inc(FTail, Result);
@@ -953,6 +960,12 @@ end;
 
 { TTLSSocket }
 
+constructor TTLSSocket.Create;
+begin
+  inherited;
+  FTimeout := 30 * 1000; // INFINITE;
+end;
+
 procedure TTLSSocket.OnConnect;
 begin
   inherited;
@@ -962,7 +975,7 @@ end;
 
 procedure TTLSSocket.WaitForReader;
 begin
-  if FReader.WaitFor(INFINITE) <> wrSignaled then
+  if FReader.WaitFor(FTimeout) <> wrSignaled then
   begin
     FReader := nil;
     raise Exception.Create('Read Error');

@@ -406,7 +406,6 @@ end;
 procedure TSChannel.Encrypt(const Data; Size: Integer);
 var
   Source : PByte;
-  Index  : Integer;
   Count  : Integer;
   Buffers: array[0..3] of TSecBuffer;
   Buffer : TSecBufferDesc;
@@ -419,7 +418,6 @@ begin
     SetLength(FSendBuffer, FBuffSizes.cbHeader + {$IFDEF TLS_DEBUG}FBuffSizes.cbMaximumMessage +{$ENDIF} FBuffSizes.cbTrailer);
   end;
   Source := @Data;
-  Index := 0;
   while Size > 0 do
   begin
     if Cardinal(Size) > FBuffSizes.cbMaximumMessage then

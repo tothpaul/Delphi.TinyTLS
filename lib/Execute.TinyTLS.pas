@@ -162,6 +162,8 @@ end;
 
 destructor TTinyTLS.Destroy;
 begin
+  Disconnect;
+  FReader.Free;
   FHandShakeData.Free;
   inherited;
 end;
@@ -169,6 +171,7 @@ end;
 procedure TTinyTLS.StartTLS;
 begin
   Reset;
+  FReader := TTLSReader.Create(Self);
   NegociateTLS();
 end;
 
@@ -238,7 +241,7 @@ begin
             if (Extension.Length <> SizeOf(FFinish)) or not CompareMem(Extension.Payload, @FFinish, SizeOf(FFinish)) then
               RaiseOverflow('RenegotiationInfo');
           end;
-          FFinish.Len := SizeOf(TFinished);
+          FFinish.Len := 2 * SizeOf(TFinished);
         end;
       end;
     end;
@@ -633,6 +636,7 @@ begin
 
   FHandShake.HandShakeType := THandShakeType.ClientHello;
   FHandShake.Length := SizeOf(TClientHello)
+                     + Hello.SessionIDLen
                      + TCipherList.SizeFor(FCipherSuites)
                      + TCompressionList.SizeFor(FCompressions)
                      + TExtensionList.SizeFor(ExtensionList.Size);
@@ -717,7 +721,7 @@ end;
 
 procedure TTinyTLS.NegociateTLS();
 begin
-  FReader := TTLSReader.Create(Self);
+  FCipherEncode := nil;
 
   ClientHello;
 

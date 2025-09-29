@@ -13,6 +13,7 @@ interface
 uses
   Winapi.Windows,
   Winapi.Winsock,
+  System.Math,
   System.SysUtils,
   System.Classes;
 
@@ -49,17 +50,24 @@ type
     procedure OnConnect; virtual;
   public
     constructor Create;
+    destructor Destroy; override;
     function Connect(const Host: UTF8String; Port: Integer; Timeout: Integer = 0): Integer;
+    procedure Disconnect;
+    procedure Close;
     function Closed: Boolean; virtual;
     function Read(var Data; Size: Integer; Raw: Boolean = False): Integer; virtual;
     function Write(const Data; Size: Integer; Raw: Boolean = False): Integer; virtual;
+    function WriteBytes(const Bytes: TBytes): Integer;
     function WriteAll(const Data; Size: Integer; Raw: Boolean = False): Boolean;
     procedure SendStream(Stream: TStream);
     procedure ReadStream(Stream: TStream; Size: Integer);
     procedure ReadUntilSequence(Stream: TStream; const Sequence: AnsiString);
     procedure ReadUntilClosed(Stream: TStream);
+    procedure ReadBytes(var Bytes: TBytes; ACount: Integer);
+    function ReadLen(Len: Integer): UTF8String;
     function ReadLn(Max: Integer = 1024): UTF8String;
     property Host: UTF8String read FHost write FHost;
+    property Handle: TSocketHandle read FHandle;
   end;
 
 implementation
@@ -97,6 +105,12 @@ var
   Ent  : PHostEnt;
 begin
   Result := nil;
+  Addr := inet_addr(PAnsiChar(Host));
+  if DWORD(Addr) <> INADDR_NONE then
+  begin
+    Result := [Addr];
+    Exit;
+  end;
   FillChar(Hints, SizeOf(Hints), 0);
   Hints.ai_family := AF_INET;
   Count := 0;
@@ -207,6 +221,12 @@ end;
 constructor TSocket.Create;
 begin
   FHandle := INVALID_SOCKET_HANDLE
+end;
+
+destructor TSocket.Destroy;
+begin
+  Close;
+  inherited;
 end;
 
 procedure TSocket.OnConnect;
@@ -351,6 +371,58 @@ begin
   until FRecv.Count = 0;
 end;
 
+procedure TSocket.ReadBytes(var Bytes: TBytes; ACount: Integer);
+var
+  Len: Integer;
+  Count: Integer;
+begin
+  if ACount > 0 then
+  begin
+    Len := Length(Bytes);
+    SetLength(Bytes, Len + ACount);
+    Count := Min(ACount, FRecv.Count);
+    if Count > 0 then
+    begin
+      Move(FRecv.Data[FRecv.Start], Bytes[Len], Count);
+      FRecv.Consume(Count);
+      Dec(ACount, Count);
+    end;
+    while ACount > 0 do
+    begin
+      Inc(Len, Count);
+      Count := Min(ACount, ReadMore);
+      if Count <= 0 then
+        raise Exception.Create('read error');
+      Move(FRecv.Data[FRecv.Start], Bytes[Len], Count);
+      FRecv.Consume(Count);
+      Dec(ACount, Count);
+    end;
+  end;
+end;
+
+function TSocket.ReadLen(Len: Integer): UTF8String;
+begin
+  SetLength(Result, Len);
+  var X := 1;
+  var L := Min(Len, FRecv.Count);
+  if L > 0 then
+  begin
+    Move(FRecv.Data[FRecv.Start], Result[X], L);
+    FRecv.Consume(L);
+    Dec(Len, L);
+  end;
+  while Len > 0 do
+  begin
+    Inc(X, L);
+    L := Min(Len, ReadMore);
+    if L<= 0 then
+      raise Exception.Create('Read error');
+    Move(FRecv.Data[FRecv.Start], Result[X], L);
+    FRecv.Consume(L);
+    Dec(Len, L);
+  end;
+end;
+
 function TSocket.ReadLn(Max: Integer = 1024): UTF8String;
 var
   Len: Integer;
@@ -399,7 +471,7 @@ begin
 
   AddrList := GetAddrList(FHost, UTF8String(IntToStr(Port)));
   if Length(AddrList) = 0 then
-    raise ESocketError.Create('getaddrinfo on host ' + Host);
+    raise ESocketError.Create('getaddrinfo on host ' + string(Host));
 
   if FHandle = INVALID_SOCKET_HANDLE then
   begin
@@ -446,6 +518,24 @@ begin
   raise ESocketError.Create('connect');
 end;
 
+procedure TSocket.Disconnect;
+begin
+  if FHandle <> INVALID_SOCKET then
+  begin
+    shutdown(FHandle, SD_BOTH);
+  end;
+end;
+
+procedure TSocket.Close;
+begin
+  if FHandle <> INVALID_SOCKET then
+  begin
+    shutdown(FHandle, SD_BOTH);
+    closesocket(FHandle);
+    FHandle := INVALID_SOCKET;
+  end;
+end;
+
 function TSocket.Closed: Boolean;
 var
   fdwrite, fderror: record         // less memory than Winsock one
@@ -479,6 +569,13 @@ begin
     raise EClosedSocketError.Create('send');
   if Result < 0 then
     raise ESocketError.Create('send');
+end;
+
+function TSocket.WriteBytes(const Bytes: TBytes): Integer;
+begin
+  Result := Length(bytes);
+  if Result > 0 then
+    Result := Write(Bytes[0], Result, False);
 end;
 
 function TSocket.WriteAll(const Data; Size: Integer; Raw: Boolean = False): Boolean;
